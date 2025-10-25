@@ -39,6 +39,12 @@ class Metrics:
     processed: int = 0
     cpu_percent: float = 0.0
     rss_mb: float = 0.0
+    elapsed_s: float = 0.0
+    # queue depth timeseries: list of [t_s, depth]
+    queue_depth_series: List[Tuple[float, int]] = field(default_factory=list)
+    burst_window: Dict[str, float] = field(default_factory=dict)
+    # idempotency violations count
+    idempotency_violations: int = 0
 
     def sample(self, decision_ns: int, e2e_ns: int, symbol: str | None = None) -> None:
         """Record a timing sample. If symbol provided, also record per-symbol."""
@@ -67,6 +73,15 @@ class Metrics:
             self.cpu_percent = psutil.cpu_percent(interval=None)
             self.rss_mb = p.memory_info().rss / (1024 * 1024)
 
+    def record_queue_depth(self, t_s: float, depth: int, cap: int = 200) -> None:
+        self.queue_depth_series.append((t_s, depth))
+        if len(self.queue_depth_series) > cap:
+            # drop oldest
+            self.queue_depth_series.pop(0)
+
+    def set_elapsed(self, elapsed_s: float) -> None:
+        self.elapsed_s = elapsed_s
+
     def to_payload(self) -> Dict:
         dec_sorted = sorted(self.decision_ns)
         e2e_sorted = sorted(self.e2e_ns)
@@ -78,7 +93,24 @@ class Metrics:
         jitter_ratio = (p99 / p50) if p50 > 0 else 0.0
         duration_s = max(len(self.decision_ns), 1) / max(self.processed, 1)  # placeholder
         # Throughput (events/sec) approximated by processed / elapsed decisions (demo)
-        eps = float(self.processed)
+        eps = float(self.processed) / max(self.elapsed_s, 1e-9)
+        # latency histogram (20 bins up to p99)
+        hist = {"bins_ms": [], "counts": []}
+        try:
+            if dec_sorted:
+                upper = _percentile(dec_sorted, 0.99) / 1e6
+                upper = max(upper, 1.0)
+                bins = 20
+                bin_width = upper / bins
+                counts = [0] * bins
+                for v in dec_sorted:
+                    ms = v / 1e6
+                    idx = min(bins - 1, int(ms / bin_width))
+                    counts[idx] += 1
+                edges = [round((i + 1) * bin_width, 3) for i in range(bins)]
+                hist = {"bins_ms": edges, "counts": counts}
+        except Exception:
+            hist = {"bins_ms": [], "counts": []}
         # per-symbol summary
         per_symbol: Dict[str, Dict] = {}
         for sym, lst in self.decision_ns_by_sym.items():
@@ -97,6 +129,7 @@ class Metrics:
                 "decision_ms": {"p50": p50, "p95": p95, "p99": p99, "max": (max(dec_sorted) / 1e6) if dec_sorted else 0.0},
                 "e2e_ms": {"p95": e2e_p95},
                 "jitter_ratio": jitter_ratio,
+                "histogram": hist,
             },
             "throughput": {"eps": eps},
             "reliability": {
@@ -110,7 +143,10 @@ class Metrics:
                 "cpu_percent": self.cpu_percent,
                 "rss_mb": self.rss_mb,
                 "queue_depth_max": self.queue_depth_max,
+                "queue_depth_series": [[round(t, 3), d] for t, d in self.queue_depth_series],
             },
+            "burst_window": self.burst_window or {},
             "processed": self.processed,
+            "elapsed_s": self.elapsed_s,
             "per_symbol": per_symbol,
         }

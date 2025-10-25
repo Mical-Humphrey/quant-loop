@@ -61,6 +61,20 @@ class Engine:
         idx = 0
         qdepth = 0
         processed = 0
+        first_processed_ns: int | None = None
+        last_processed_ns: int | None = None
+        # idempotency tracking
+        seen_order_ids: set[str] = set()
+
+        # expose burst window info to metrics for reporting
+        self.metrics.burst_window = {
+            "start_s": float(self.cfg.burst_start_s),
+            "end_s": float(self.cfg.burst_start_s + self.cfg.burst_len_s),
+        }
+
+        # sampling cadence for queue depth (50 ms)
+        sample_interval_ns = 50_000_000
+        next_sample_ns = start + sample_interval_ns
 
         while time.perf_counter_ns() < end_time:
             # Synthetic burst window
@@ -87,6 +101,20 @@ class Engine:
                 notional = 1000.0 * signal  # constant notional per decision
 
                 ok, reason = self._risk_gate(evt.symbol, notional)
+                # deterministic order id for idempotency checks
+                try:
+                    import hashlib
+
+                    oid_src = f"{self.cfg.seed}:{evt.symbol}:{evt.ts}:{int(signal)}"
+                    oid = hashlib.sha256(oid_src.encode("utf-8")).hexdigest()[:16]
+                except Exception:
+                    oid = f"{evt.symbol}:{evt.ts}:{int(signal)}"
+
+                # detect duplicates
+                if oid in seen_order_ids:
+                    self.metrics.idempotency_violations += 1
+                else:
+                    seen_order_ids.add(oid)
                 if not ok:
                     self.metrics.exposure_block(reason)
                     # record per-symbol exposure block
@@ -103,7 +131,21 @@ class Engine:
                 # pass symbol to get per-symbol timings
                 self.metrics.sample(decision_ns=t1 - t0, e2e_ns=(t1 - t0), symbol=evt.symbol)  # ack is same in demo
                 processed += 1
+                if first_processed_ns is None:
+                    first_processed_ns = t1
+                last_processed_ns = t1
                 qdepth = max(0, qdepth - 1)
+
+                # sample queue depth on interval
+                now_ns = time.perf_counter_ns()
+                if now_ns >= next_sample_ns:
+                    rel_s = (now_ns - start) / 1e9
+                    self.metrics.record_queue_depth(rel_s, qdepth)
+                    next_sample_ns += sample_interval_ns
+        # finalize elapsed (use first/last processed timestamps if available)
+        if first_processed_ns and last_processed_ns and last_processed_ns >= first_processed_ns:
+            elapsed = (last_processed_ns - first_processed_ns) / 1e9
+            self.metrics.set_elapsed(elapsed)
 
         self.metrics.set_runtime(processed=processed, queue_depth_max=self.cfg.max_queue)
         return self.metrics
