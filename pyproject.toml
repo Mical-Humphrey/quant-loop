@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qloop"
+version = "0.1.0"
+description = "QuantLoop: Real-Time Strategy Runner (deterministic demo with metrics and HTML report)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Your Name" }]
+dependencies = [
+  "click>=8.1",
+  "jinja2>=3.1",
+  "psutil>=5.9",
+]
+
+[project.scripts]
+qloop = "qloop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qloop*"]
+
+[tool.ruff]
+line-length = 100
