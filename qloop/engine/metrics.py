@@ -29,20 +29,35 @@ class Metrics:
     queue_depth_max: int = 0
     exposure_blocks_total: int = 0
     exposure_block_reasons: Dict[str, int] = field(default_factory=dict)
+    # per-symbol metrics
+    decision_ns_by_sym: Dict[str, List[int]] = field(default_factory=dict)
+    e2e_ns_by_sym: Dict[str, List[int]] = field(default_factory=dict)
+    processed_by_sym: Dict[str, int] = field(default_factory=dict)
+    trades_by_sym: Dict[str, int] = field(default_factory=dict)
+    exposure_blocks_by_sym: Dict[str, int] = field(default_factory=dict)
+    last_reason_by_sym: Dict[str, str] = field(default_factory=dict)
     processed: int = 0
     cpu_percent: float = 0.0
     rss_mb: float = 0.0
 
-    def sample(self, decision_ns: int, e2e_ns: int) -> None:
+    def sample(self, decision_ns: int, e2e_ns: int, symbol: str | None = None) -> None:
+        """Record a timing sample. If symbol provided, also record per-symbol."""
         self.decision_ns.append(decision_ns)
         self.e2e_ns.append(e2e_ns)
+        if symbol:
+            self.decision_ns_by_sym.setdefault(symbol, []).append(decision_ns)
+            self.e2e_ns_by_sym.setdefault(symbol, []).append(e2e_ns)
+            self.processed_by_sym[symbol] = self.processed_by_sym.get(symbol, 0) + 1
 
     def drop(self) -> None:
         self.drops_total += 1
 
-    def exposure_block(self, reason: str) -> None:
+    def exposure_block(self, reason: str, symbol: str | None = None) -> None:
         self.exposure_blocks_total += 1
         self.exposure_block_reasons[reason] = self.exposure_block_reasons.get(reason, 0) + 1
+        if symbol:
+            self.exposure_blocks_by_sym[symbol] = self.exposure_blocks_by_sym.get(symbol, 0) + 1
+            self.last_reason_by_sym[symbol] = reason
 
     def set_runtime(self, processed: int, queue_depth_max: int) -> None:
         self.processed = processed
@@ -64,6 +79,18 @@ class Metrics:
         duration_s = max(len(self.decision_ns), 1) / max(self.processed, 1)  # placeholder
         # Throughput (events/sec) approximated by processed / elapsed decisions (demo)
         eps = float(self.processed)
+        # per-symbol summary
+        per_symbol: Dict[str, Dict] = {}
+        for sym, lst in self.decision_ns_by_sym.items():
+            s_sorted = sorted(lst)
+            p95_sym = _percentile(s_sorted, 0.95) / 1e6 if s_sorted else 0.0
+            per_symbol[sym] = {
+                "processed": self.processed_by_sym.get(sym, 0),
+                "latency_p95": p95_sym,
+                "trades": self.trades_by_sym.get(sym, 0),
+                "exposure_blocks": self.exposure_blocks_by_sym.get(sym, 0),
+                "last_reason": self.last_reason_by_sym.get(sym, "-"),
+            }
 
         return {
             "latency": {
@@ -85,4 +112,5 @@ class Metrics:
                 "queue_depth_max": self.queue_depth_max,
             },
             "processed": self.processed,
+            "per_symbol": per_symbol,
         }

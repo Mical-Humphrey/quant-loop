@@ -89,13 +89,19 @@ class Engine:
                 ok, reason = self._risk_gate(evt.symbol, notional)
                 if not ok:
                     self.metrics.exposure_block(reason)
+                    # record per-symbol exposure block
+                    self.metrics.exposure_block(reason, symbol=evt.symbol)
                     # no position change
                 else:
                     # update exposure position
                     self.positions[evt.symbol] += notional
+                    # count a trade for demo purposes
+                    if signal != 0.0:
+                        self.metrics.trades_by_sym[evt.symbol] = self.metrics.trades_by_sym.get(evt.symbol, 0) + 1
 
                 t1 = time.perf_counter_ns()
-                self.metrics.sample(decision_ns=t1 - t0, e2e_ns=(t1 - t0))  # ack is same in demo
+                # pass symbol to get per-symbol timings
+                self.metrics.sample(decision_ns=t1 - t0, e2e_ns=(t1 - t0), symbol=evt.symbol)  # ack is same in demo
                 processed += 1
                 qdepth = max(0, qdepth - 1)
 
