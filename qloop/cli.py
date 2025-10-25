@@ -26,7 +26,30 @@ def _write_metrics(report_dir: Path, metrics: Metrics, seed: int, fixtures: Path
     payload["code_hash"] = hash_code()
     payload["determinism_ok"] = True  # set True if fingerprint matches baseline (extend later)
 
+    # embed raw decision samples (ms) to improve client-side histogram rendering
+    try:
+        payload["_raw_decision_samples"] = [d / 1e6 for d in metrics.decision_ns]
+    except Exception:
+        payload["_raw_decision_samples"] = []
+
     (report_dir / "metrics.json").write_text(json.dumps(payload, indent=2))
+    # simple CSV (metric, value)
+    csv_lines = ["metric,value"]
+    def flatten(prefix: str, obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield from flatten(f"{prefix}.{k}" if prefix else k, v)
+        else:
+            yield (prefix, obj)
+
+    for k, v in flatten("", payload):
+        # sanitize
+        csv_lines.append(f"{k},{str(v).replace(',', '')}")
+    (report_dir / "metrics.csv").write_text("\n".join(csv_lines))
+
+    # run fingerprint
+    (report_dir / "run_fingerprint.txt").write_text(f"{seed}:{payload['fixture_hash']}:{payload['code_hash']}\n")
+
     return payload
 
 

@@ -30,6 +30,18 @@ What to show in 20–30 seconds
   - Queue depth timeline (includes a short synthetic burst)
   - Per-symbol table (CRUS/DDOG/QRVO/COP) with last‑trade “reason”
 
+  What these metrics mean
+  -----------------------
+  - p50/p95/p99 decision latency: how long the strategy took to make decisions (lower is better).
+  - e2e p95: end-to-end latency from event ingestion to acknowledgement.
+  - throughput (eps): events processed per run (higher indicates more work done).
+  - jitter_ratio: p99/p50, shows tail dispersion.
+  - drops: events dropped due to queue/backpressure.
+  - exposure_blocks: safety gate activations that prevented positions from exceeding caps.
+  - idempotency_violations: repeated side-effects (expected 0 in demo).
+  - CPU% / RSS: process resource usage snapshot at the end of the run.
+
+
 Measured metrics
 - Performance: decision_latency_ms p50/p95/p99/max, e2e_latency_ms p95, throughput (eps), jitter_ratio
 - Reliability/safety: drop_rate, idempotency_violations, error_rate, exposure_blocks (count + reason)
