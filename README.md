@@ -10,6 +10,9 @@ Why this is interview‑ready
 
 Quickstart
 ```bash
+# Zero-config: run the default demo and open the report
+python -m qloop
+
 # Create a venv and install
 python -m venv .venv && source .venv/bin/activate
 pip install -U pip
@@ -19,14 +22,16 @@ pip install -e .
 qloop demo --report-dir out
 
 Determinism / baseline (fixing a FAIL)
- - The report shows a determinism badge calculated from the tuple: seed + fixture_hash + code_hash.
- - If the badge reads FAIL it's because no baseline is present or the saved baseline differs from the current run.
- - To set the baseline to the current code+fixtures+seed run (so future runs compare against it):
-   - qloop baseline-save --report-dir out
- - To run a 3-run determinism check against the saved baseline (will write determinism_result.json):
-   - qloop baseline-check --report-dir out --duration 10
- - A convenient shortcut when generating a demo report is to use the demo command's --baseline flag which saves a baseline then runs a quick 3-run check:
-   - qloop demo --report-dir out --baseline
+- The report shows a determinism badge calculated from the tuple: seed + fixture_hash + code_hash.
+- If the badge reads FAIL it's because no baseline is present or the saved baseline differs from the current run.
+- To set the baseline to the current code+fixtures+seed run (so future runs compare against it):
+  - qloop baseline-save --report-dir out
+- To run a 3-run determinism check against the saved baseline (will write determinism_result.json):
+  - qloop baseline-check --report-dir out --duration 10
+- Shortcut: the demo command's --baseline flag saves a baseline then runs a quick 3-run check:
+  - qloop demo --report-dir out --baseline
+    - opens only the final updated report; determinism PASS/FAIL is written back to `out/report.html`
+    - add `--no-open` to skip launching a browser when running headless
 
 # Or run the engine only, 30s, fixed seed
 qloop run --fixtures fixtures/minute_bars.csv --duration 30 --seed 7 --report-dir out
